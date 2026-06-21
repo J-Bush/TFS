@@ -48,18 +48,6 @@ print(path.iloc[-1])   # scores
 An annotated walkthrough is in
 [`notebooks/three_sine_example.ipynb`](notebooks/three_sine_example.ipynb).
 
-## Repository layout
-
-```
-src/
-  data_utils.py               sliding windows, distance matrices, datasets
-  persistence_optimization.py persistence objectives and Algorithm 6.2
-  plotting_utils.py           figures (time series, diagrams, paths, scores, covariance)
-notebooks/
-  three_sine_example.ipynb    worked example
-requirements.txt
-LICENSE
-```
 
 ## Method at a glance
 
