@@ -5,4 +5,3 @@ ripser>=0.6
 matplotlib>=3.4
 plotly>=5.0
 kaleido>=0.2
-openpyxl>=3.0

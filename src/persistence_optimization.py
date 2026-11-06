@@ -5,7 +5,6 @@ function of the persistence diagram of a convex combination of distance matrices
 over the probability simplex.
 """
 
-from collections import defaultdict
 from typing import List, Optional, Union
 
 import numpy as np
@@ -14,9 +13,12 @@ from ripser import ripser
 
 from .data_utils import (
     extract_vectors,
-    get_matrix_indices,
     weighted_matrix_sum,
 )
+
+# Ripser stores filtration values as 32-bit floats, which represent the integers
+# up to 2**24 exactly. This limits the number of edges in birth_death_indices.
+_MAX_EDGES = 2 ** 24
 
 
 def persistence(mat: np.ndarray, dim: int = 1) -> np.ndarray:
@@ -40,24 +42,25 @@ def persistence(mat: np.ndarray, dim: int = 1) -> np.ndarray:
     return np.stack(sorted(diagram, key=lambda bd: bd[1] - bd[0], reverse=True))
 
 
-def _index_map(values, indices):
-    table = defaultdict(list)
-    for value, index in zip(values, indices):
-        table[value].append(tuple(index))
-    return table
-
-
 def birth_death_indices(
     mat: np.ndarray,
     dim: int = 1,
     num_of_pairs: Union[int, str] = "all",
 ):
-    """Locate the birth and death simplices of the top persistence pairs.
+    """Locate the birth and death edges of the top persistence pairs.
+
+    In a Vietoris-Rips filtration each simplex appears at the length of its
+    longest edge, so each finite pair is born at the length of one edge of
+    ``mat`` and dies at the length of another. To find these edges, the edge
+    lengths are replaced by their ranks, with ties broken by position in the
+    matrix, and the persistence diagram of the rank matrix is computed. This
+    gives the same pairs as ``mat``, and each birth and death is an integer
+    that identifies a single edge.
 
     Parameters
     ----------
     mat : numpy.ndarray
-        A distance matrix.
+        A (possibly upper-triangular) distance matrix.
     dim : int, optional
         The homological degree.
     num_of_pairs : int or "all", optional
@@ -65,25 +68,36 @@ def birth_death_indices(
 
     Returns
     -------
-    tuple of list
-        ``(birth_indices, death_indices)``, each a list of ``(row, col)`` pairs.
+    tuple of numpy.ndarray
+        ``(birth_indices, death_indices)``, each an integer array with one
+        ``(row, col)`` position per pair. Infinite pairs are omitted. In degree
+        0, where pairs are born at vertices, the birth position is ``(0, 0)``.
     """
-    diagram = persistence(mat, dim)
-    if num_of_pairs == "all":
-        num_of_pairs = len(diagram)
-    diagram = diagram[:num_of_pairs]
+    m = mat.shape[0]
+    rows, cols = np.triu_indices(m, k=1)
+    if rows.size > _MAX_EDGES:
+        raise ValueError(f"The distance matrix has {m} points; at most 5793 are supported.")
+    lengths = mat[rows, cols]
+    order = np.argsort(lengths, kind="stable")
+    ranks = np.zeros((m, m))
+    ranks[rows[order], cols[order]] = np.arange(1, rows.size + 1)
 
+    diagram = ripser(ranks, distance_matrix=True, maxdim=dim)["dgms"][dim]
+    diagram = np.rint(diagram[np.isfinite(diagram[:, 1])]).astype(int)
     births, deaths = diagram[:, 0], diagram[:, 1]
-    birth_idx = get_matrix_indices(mat, births)
-    death_idx = get_matrix_indices(mat, deaths)
-    if num_of_pairs == 1:
-        return birth_idx, death_idx
 
-    birth_map = _index_map(mat[tuple(birth_idx.T)], birth_idx)
-    death_map = _index_map(mat[tuple(death_idx.T)], death_idx)
-    birth_sorted = [birth_map[b].pop(0) for b in births]
-    death_sorted = [death_map[d].pop(0) for d in deaths]
-    return birth_sorted, death_sorted
+    # Entry r of these arrays describes the edge of rank r. Rank 0 stands for
+    # the vertices, which appear at length 0.
+    edge_rows = np.concatenate(([0], rows[order]))
+    edge_cols = np.concatenate(([0], cols[order]))
+    edge_lengths = np.concatenate(([0.0], lengths[order]))
+
+    top = np.argsort(edge_lengths[births] - edge_lengths[deaths], kind="stable")
+    if num_of_pairs != "all":
+        top = top[:num_of_pairs]
+    birth_idx = np.column_stack((edge_rows[births[top]], edge_cols[births[top]]))
+    death_idx = np.column_stack((edge_rows[deaths[top]], edge_cols[deaths[top]]))
+    return birth_idx, death_idx
 
 
 def persistence_gradient(
@@ -94,13 +108,14 @@ def persistence_gradient(
 ) -> np.ndarray:
     """Compute a subgradient of the persistence objective in the weights.
 
-    For each bar the contribution is ``death_weight * D[death] - birth_weight *
-    D[birth]`` summed over the component matrices; the defaults correspond to
-    (total or maximum) persistence.
+    Entry ``j`` of the result is the sum over bars of
+    ``death_weight * D_j[death] + birth_weight * D_j[birth]``, where ``D_j`` is
+    the ``j``-th component matrix. With the default weights this is the gradient
+    of the sum of the lifetimes of the given bars.
 
     Parameters
     ----------
-    bd_indices : tuple of list
+    bd_indices : tuple
         ``(birth_indices, death_indices)`` from :func:`birth_death_indices`.
     matrices : numpy.ndarray
         The component distance matrices, of shape ``(p, m, m)``.
@@ -190,6 +205,7 @@ def stochastic_subgradient_descent(
     d: float = 0.01,
     sigma: float = 0.1,
     col_names: Optional[List] = None,
+    seed: Optional[int] = None,
 ) -> pd.DataFrame:
     """Maximize a persistence functional over the simplex.
 
@@ -225,6 +241,9 @@ def stochastic_subgradient_descent(
         sets the noise to a fixed fraction of the initial gradient.
     col_names : list, optional
         Column labels for the returned path.
+    seed : int, optional
+        Seed for the gradient noise. If ``None``, NumPy's global random state is
+        used.
 
     Returns
     -------
@@ -234,6 +253,7 @@ def stochastic_subgradient_descent(
         iteration reaches a fixed point.
     """
     matrices = np.asarray(matrices)
+    rng = np.random if seed is None else np.random.default_rng(seed)
     p = len(matrices)
     v = np.full(p, 1.0 / p)
     path = [v.copy()]
@@ -251,7 +271,7 @@ def stochastic_subgradient_descent(
             break
 
         if sigma > 0:
-            noise = np.random.randn(p)
+            noise = rng.standard_normal(p)
             noise = (noise - np.mean(noise)) * sigma
         else:
             noise = 0.0
@@ -297,7 +317,7 @@ def iter_grad_descent(
     num_of_iter : int
         The number of independent runs.
     num_of_steps : int
-        The number of iterations per run.
+        The maximum number of iterations per run.
     num_of_features : int or "all", optional
         The number of persistence pairs in the objective.
     eta_0, d, sigma : float, optional

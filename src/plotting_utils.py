@@ -10,10 +10,7 @@ import plotly.graph_objs as go
 
 
 def _show_plotly(fig):
-    """Display a Plotly figure.
-
-    Displaying through IPython when it is available, and falling back to ``fig.show()`` otherwise.
-    """
+    """Display a Plotly figure through IPython if available, otherwise with ``fig.show()``."""
     try:
         from IPython.display import display
 
@@ -258,7 +255,6 @@ def plot_heatmap(
 def plot_covariance(
     score_df,
     restrict_threshold: float = None,
-    clean_labels: bool = False,
     fontsize: int = 10,
     transparent: bool = False,
     save_fig: str = None,
@@ -276,8 +272,6 @@ def plot_covariance(
     restrict_threshold : float, optional
         If given, restrict the matrix to variables whose mean score exceeds this
         threshold, ordered by decreasing mean score.
-    clean_labels : bool, optional
-        Whether to normalize labels with :func:`clean_neuron_name`.
     fontsize : int, optional
         The axis tick font size.
     transparent : bool, optional
@@ -302,10 +296,6 @@ def plot_covariance(
 
     cov = score_df.cov()
     labels = [str(c) for c in columns]
-    if clean_labels:
-        from .data_utils import clean_neuron_name
-
-        labels = [clean_neuron_name(c) for c in columns]
 
     fig = go.Figure(
         go.Heatmap(z=cov.values, x=labels, y=labels, colorscale="Viridis")
@@ -565,7 +555,6 @@ def plot_scores_bar(
     mean_path,
     all_values=None,
     threshold=1e-3,
-    clean_labels=False,
     transparent=False,
     save_fig=None,
 ):
@@ -580,8 +569,6 @@ def plot_scores_bar(
         across-trial standard deviation of the final scores.
     threshold : float, optional
         Only variables scoring above this are shown.
-    clean_labels : bool, optional
-        Whether to normalize labels with :func:`clean_neuron_name`.
     transparent : bool, optional
         Whether to use a transparent background.
     save_fig : str, optional
@@ -600,12 +587,7 @@ def plot_scores_bar(
         stds = np.std(all_values[:, -1, :][:, idx], axis=0, ddof=1)
         error_y = dict(type="data", array=stds.tolist(), visible=True)
 
-    if clean_labels:
-        from .data_utils import clean_neuron_name
-
-        x_labels = [clean_neuron_name(c) for c in keep.index]
-    else:
-        x_labels = [str(c) for c in keep.index]
+    x_labels = [str(c) for c in keep.index]
 
     fig = go.Figure(go.Bar(x=x_labels, y=keep.values, error_y=error_y))
     bg = "rgba(0,0,0,0)" if transparent else "white"

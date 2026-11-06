@@ -1,6 +1,5 @@
 """Time series, sliding-window embeddings, and distance-matrix utilities."""
 
-import re
 from typing import List, Optional, Union
 
 import numpy as np
@@ -69,8 +68,9 @@ def sw_dist_mats(
     Returns
     -------
     numpy.ndarray
-        A single upper-triangular distance matrix if ``glob`` is ``True``,
-        otherwise an array of shape ``(p, m, m)`` with one matrix per variable.
+        Upper-triangular distance matrices: one of shape ``(m, m)`` if ``glob``
+        is ``True``, otherwise an array of shape ``(p, m, m)`` with one matrix
+        per variable, where ``m`` is the number of window positions.
     """
     if isinstance(data, np.ndarray):
         data = pd.Series(data) if data.ndim == 1 else pd.DataFrame(data)
@@ -81,6 +81,8 @@ def sw_dist_mats(
         emb = sliding_window(data, window)
         return np.triu(pairwise_distances(emb, metric=metric), k=1)
 
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
     mats = [
         np.triu(pairwise_distances(sliding_window(data[col], window), metric=metric), k=1)
         for col in data.columns
@@ -96,20 +98,6 @@ def weighted_matrix_sum(
     return np.einsum("i,ijk->jk", weights, matrices)
 
 
-def get_matrix_indices(mat: np.ndarray, entries: list) -> np.ndarray:
-    """Return the ``(i, j)`` positions of ``entries`` within ``mat``."""
-    entries = list(entries)
-    if len(entries) == len(set(entries)):
-        return np.argwhere(np.isin(mat, entries))
-    indices = []
-    for entry in entries:
-        hit = np.argwhere(mat == entry)
-        if hit.size == 0:
-            raise ValueError(f"Entry {entry} not found in the matrix.")
-        indices.append(hit[0])
-    return np.array(indices)
-
-
 def extract_vectors(matrices: np.ndarray, indices: list) -> np.ndarray:
     """Stack the entries of each matrix at the given ``(row, col)`` positions.
 
@@ -117,8 +105,8 @@ def extract_vectors(matrices: np.ndarray, indices: list) -> np.ndarray:
     ----------
     matrices : numpy.ndarray
         An array of shape ``(l, m, m)``.
-    indices : list of tuple
-        A list of ``(row, col)`` positions.
+    indices : array-like
+        The ``(row, col)`` positions, one per row.
 
     Returns
     -------
@@ -138,7 +126,7 @@ def generate_three_sine_dataset(
     seed: int = 6,
     return_clean: bool = False,
 ):
-    """Generate three noisy sine waves with distinct noise levels.
+    """Generate noisy cosines with distinct noise levels.
 
     Each signal is a cosine of the given ``period`` with a random phase offset and
     additive Gaussian noise. This is the synthetic dataset of the first example in
@@ -154,7 +142,7 @@ def generate_three_sine_dataset(
         The noise standard deviation for each signal; its length sets the number
         of signals.
     seed : int, optional
-        A base seed; signal ``j`` uses ``seed + j``.
+        A base seed; the signals use seeds ``seed``, ``seed + 1``, and so on.
     return_clean : bool, optional
         If ``True``, also return the noise-free signals (same phases) as a second
         DataFrame.
@@ -183,10 +171,10 @@ def generate_base_dataset(
     seed: int = 42,
     permute: bool = True,
 ) -> pd.DataFrame:
-    """Generate ten cosines, optionally scrambling the last seven.
+    """Generate cosines, optionally scrambling all but the first three.
 
-    This is the synthetic dataset of the second example in the accompanying paper.
-    The first three columns are cosines with random phase offsets; with
+    This is the synthetic dataset of the second example in the accompanying paper,
+    before noise is added (see :func:`add_noise`). The first three columns are cosines with random phase offsets; with
     ``permute=True`` the remaining columns are randomly permuted in time, removing
     their periodic structure.
 

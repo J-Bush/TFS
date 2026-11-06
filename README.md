@@ -3,20 +3,33 @@
 Tools from applied topology for scoring the variables of a multivariate time
 series by their contribution to the topology of its sliding-window embedding.
 
-Given a multivariate time series, the method forms the sliding-window embedding
-of each variable, summarizes it with a persistence diagram, and searches over
-convex combinations of the variables for the combination that maximizes a chosen
-functional of the diagram (for example, the lifetime of the most persistent
-loop). The search uses projected stochastic subgradient descent on the
-probability simplex. The resulting weights are interpreted as scores: variables
-with larger weights contribute more to the coordinated, periodic structure of the
-data.
+Given a multivariate time series, the method computes a sliding-window distance
+matrix for each variable and searches over convex combinations of these matrices
+for the one whose persistence diagram maximizes a chosen functional (for example,
+the lifetime of the most persistent loop). The search uses projected stochastic
+subgradient descent on the probability simplex. The resulting weights are
+interpreted as scores: variables with larger weights contribute more to the
+coordinated, periodic structure of the data.
 
 This repository accompanies the paper *Topological Feature Selection for Time
 Series Data* by Peter Bubenik and Johnathan Bush.
 
 
+## Installation
+
+From the repository's root folder, install the dependencies with
+
+```
+pip install -r requirements.txt
+```
+
+Running the notebook also requires Jupyter (`pip install jupyter`), and running
+the tests in `tests/` requires pytest (`pip install pytest`, then `pytest`).
+
+
 ## Quick start
+
+Run the following from the repository's root folder.
 
 ```python
 import numpy as np
@@ -40,6 +53,7 @@ path = stochastic_subgradient_descent(
     d=1 / 500,
     sigma=0.1 * norm,
     col_names=["1", "2", "3"],
+    seed=0,
 )
 
 print(path.iloc[-1])   # scores
@@ -49,7 +63,7 @@ An annotated walkthrough is in
 [`notebooks/three_sine_example.ipynb`](notebooks/three_sine_example.ipynb).
 
 
-## Method at a glance
+## Method
 
 For a chosen window length, the sliding-window embedding of each variable yields a
 distance matrix `D_j`. For weights `v` on the simplex, the convex combination
